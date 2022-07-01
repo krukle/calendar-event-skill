@@ -1,9 +1,7 @@
-from operator import contains
-from mycroft import MycroftSkill, intent_handler
-from icalendar import Calendar, Event, vCalAddress, vText
 from datetime import datetime
+from mycroft import MycroftSkill, intent_handler
+from icalendar import Calendar, Event
 from pathlib import Path
-from pytz import timezone
 import os
 
 class CalendarEvent(MycroftSkill):
@@ -46,47 +44,77 @@ class CalendarEvent(MycroftSkill):
         # with self.file_system.open(CAL_PATH, "rb") as my_file:
         #     self.log.info(my_file.read())
 
-    def initialize_calendar(self):
+    def initialize_calendar(self) -> Calendar:
         if self.file_system.exists(self.CAL_PATH):
             with self.file_system.open(self.CAL_PATH, "rb") as file:
                 return Calendar.from_ical(file.read())
         else:
             return Calendar()
 
-    # Event containing description and datetime.
-    @intent_handler('create.this.event.at.intent')
-    def create_event(self, message):
-        description = message.data.get('description', None)
-        if description is None:
-            return self.create_event_no_description(message)
-        date_time, rest = self.extract_datetime(message.data.get('datetime', None))
-        if date_time is None: #TODO: Handle case where padatious misses datetime in utterance.
-            return self.create_event_no_datetime(message)
+    def add_event(self, description:str, date_time:datetime):
         event = Event()
         event.add('description', description)
         event.add('dtstart', date_time)
         self.calendar.add_component(event)
         with self.file_system.open(self.CAL_PATH, "wb") as f:
             f.write(self.calendar.to_ical())
+            self.speak_dialog('event.created', {'description': description}, {'date_time': self.nice_duration(date_time)})
             
+    def get_datetime(self) -> datetime:
+        date_time = None
+        while date_time is None:
+            response = self.get_response('what.datetime')
+            date_time, rest = self.extract_datetime(response)
+        return date_time
+
+    def extract_info(self, event:str) -> "tuple[datetime, str]":
+        date_time, description = self.extract_datetime(event)
+        if date_time is None:
+            date_time = self.get_datetime()
+            description = event
+        if description is None:
+            description = self.get_response('what.description')
+        return date_time, description
+        
+    # Event containing description and datetime.
+    @intent_handler('create.this.event.at.intent')
+    def create_event(self, message):
+        event = message.data.get('event', None)
+        if event is None:
+            return self.create_event_nothing()
+        date_time, description = self.extract_info(event)
+        if description is None:
+            return self.create_event_no_description(message)
+        date_time, description = self.extract_datetime(message.data.get('datetime', None))
+        if date_time is None: #TODO: Handle case where padatious misses datetime in utterance. This is not it. See: https://github.com/MycroftAI/skill-reminder/blob/cd1b5513837d2674db842a4c42aef19b80ee658f/__init__.py#L275
+            return self.create_event_no_datetime(message)
+        
+        return self.add_event(description, date_time)
+
     # Event containing datetime.
-    @intent_handler('create.event.at.intent')
+    # @intent_handler('create.event.at.intent')
     def create_event_no_description(self, message):
-        if not self.contains_datetime(message.data['utterance']):
-            return self.create_event_nothing(message)
+        date_time, rest = self.extract_datetime(message.data.get('datetime', None))
+        if date_time is None: #TODO: Handle case where padatious misses datetime in utterance. This is not it. See: https://github.com/MycroftAI/skill-reminder/blob/cd1b5513837d2674db842a4c42aef19b80ee658f/__init__.py#L275
+            return self.create_event_nothing()
+        description = self.get_response('what.description')
+        return self.add_event(description, date_time)
 
     # Event containing description.
-    @intent_handler('create.this.event.intent')
+    # @intent_handler('create.this.event.intent')
     def create_event_no_datetime(self, message):
         description = message.data.get('description', None)
         if description is None:
             return self.create_event_no_description(message)
+        date_time = self.get_datetime()
+        return self.add_event(description, date_time)
 
     # Event containing nothing. 
-    @intent_handler('create.event.intent')
-    def create_event_nothing(self, message):
-        pass
+    # @intent_handler('create.event.intent')
+    def create_event_nothing(self):
+        response = self.get_response('what.event')
+        date_time, description = self.extract_info(response)
+        return self.add_event(description, date_time)
 
-def create_skill():
+def create_skill() -> CalendarEvent:
     return CalendarEvent()
-
