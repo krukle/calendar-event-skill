@@ -27,10 +27,11 @@ class CalendarEvent(MycroftSkill):
     def contains_datetime(self, utterance):
         return extract_datetime(utterance) is not None
 
-    def add_calendar_event(self, description:str, date_time:datetime):
+    def add_calendar_event(self, date_time:datetime, description:str):
         event = Event()
         event.add('description', description)
         event.add('dtstart', date_time)
+        # event.add('rrule', {'freq': 'daily'}) TODO: Add functionality to add recurring events.
         self.calendar.add_component(event)
         with self.file_system.open(self.CAL_PATH, "wb") as f:
             f.write(self.calendar.to_ical())
@@ -44,20 +45,6 @@ class CalendarEvent(MycroftSkill):
         date_time = extract_datetime(response)[0]
         return date_time
 
-    def extract_info(self, event:str) -> "tuple[datetime, str]":
-        if event is not None:
-            date_time, description = extract_datetime(event)
-        else:
-            date_time, description = None, None
-        if date_time is None:
-            date_time = self.get_datetime()
-            description = description or event
-        if not (description and description.strip()):
-            description = self.get_response('what.description')
-            if not (description and description.strip()):
-                raise TypeError(f'description cant be empty since an event description is needed')
-        return date_time, description
-
     def clean_description(self, description:str) -> str:
         description = "" if description is None else description
         description = description.split(' ')
@@ -66,17 +53,32 @@ class CalendarEvent(MycroftSkill):
         description[0] = description[0].capitalize()
         return' '.join(description)
 
-    # Event containing description and datetime.
+    def string_is_empty(self, string:str) -> bool:
+        return not (string and string.strip())
+
     @intent_handler('create.event.intent')
     def create_event(self, message):
+        event       = message.data.get('event')
+        date_time   = None
+        description = None
+
         try:
-            date_time, description = self.extract_info(message.data.get('event', None))
+            if self.string_is_empty(event): # Empty: True
+                date_time   = self.get_datetime()
+                description = self.get_response('what.description')
+            elif self.contains_datetime(event): # Empty: False, Datetime: True, Description: Maybe
+                date_time, description = extract_datetime(event)
+                if self.string_is_empty(description): # Description: False
+                    description = self.get_response('what.description')
+            elif (not (self.string_is_empty(event)) and not (self.contains_datetime(event))): # Empty: False, Datetime: False => Description: True
+                date_time   = self.get_datetime()
+                description = event
         except TypeError as error:
             self.speak_dialog("could.not.understand")
             self.log.error(error)
             return
-        description = self.clean_description(description)
-        return self.add_calendar_event(description, date_time)
+        
+        return self.add_calendar_event(date_time, self.clean_description(description))
 
 def create_skill() -> CalendarEvent:
     return CalendarEvent()
