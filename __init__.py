@@ -9,6 +9,7 @@ import os
 class CalendarEvent(MycroftSkill):
     def __init__(self):
         MycroftSkill.__init__(self)
+        self.INFINITIVE_SIGNS = ["att", "that"]
         self.CAL_PATH = Path(Path.home(), 'MagicMirror', 'modules', 'calendar', 'calendar.ics')
         self.calendar = self.initialize_calendar()
 
@@ -22,6 +23,9 @@ class CalendarEvent(MycroftSkill):
 
     def calendar_exists(self):
         return self.file_system.exists(self.CAL_PATH) and os.stat(self.CAL_PATH).st_size > 0
+    
+    def contains_datetime(self, utterance):
+        return extract_datetime(utterance) is not None
 
     def add_calendar_event(self, description:str, date_time:datetime):
         event = Event()
@@ -34,11 +38,10 @@ class CalendarEvent(MycroftSkill):
             
     def get_datetime(self) -> datetime:
         date_time, response = (None, None)
-        # while date_time is None or response is None or self.voc_match(response, 'cancel'):
-            # self.log.info(self.voc_match(response, 'cancel'), response)
-            #TODO: Fix the check
-        response = self.get_response('what.datetime')
-        date_time, rest = extract_datetime(response) or (None, None)
+        response = self.get_response('what.datetime', validator=self.contains_datetime, num_retries=-1)
+        if type(response) is not str:
+            raise TypeError(f'response cant be of type {type(response)} since a string is needed for extract_datetime')
+        date_time = extract_datetime(response)[0]
         return date_time
 
     def extract_info(self, event:str) -> "tuple[datetime, str]":
@@ -48,15 +51,31 @@ class CalendarEvent(MycroftSkill):
             date_time, description = None, None
         if date_time is None:
             date_time = self.get_datetime()
-            description = next((item for item in [description, event] if item is not None), None) # set description to whichever isn't None of description and event.
-        if description is None:
+            description = description or event
+        if not (description and description.strip()):
             description = self.get_response('what.description')
+            if not (description and description.strip()):
+                raise TypeError(f'description cant be empty since an event description is needed')
         return date_time, description
-        
+
+    def clean_description(self, description:str) -> str:
+        description = "" if description is None else description
+        description = description.split(' ')
+        if description[0].lower() in self.INFINITIVE_SIGNS:
+            description.pop(0)
+        description[0] = description[0].capitalize()
+        return' '.join(description)
+
     # Event containing description and datetime.
     @intent_handler('create.event.intent')
     def create_event(self, message):
-        date_time, description = self.extract_info(message.data.get('event', None))
+        try:
+            date_time, description = self.extract_info(message.data.get('event', None))
+        except TypeError as error:
+            self.speak_dialog("could.not.understand")
+            self.log.error(error)
+            return
+        description = self.clean_description(description)
         return self.add_calendar_event(description, date_time)
 
 def create_skill() -> CalendarEvent:
