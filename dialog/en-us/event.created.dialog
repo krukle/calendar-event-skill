@@ -1,1 +1,1 @@
-Event {description}, scheduled {date_time}
+Event {description}, scheduled starting {date_time} {frequency}
