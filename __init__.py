@@ -62,9 +62,47 @@ class CalendarEvent(MycroftSkill):
     
     def contains_frequency(self, utterance:str) -> bool:
         """Returns True if the utterance contains a frequency."""
-        return self.extract_frequency(utterance) is not None
+        return self.extract_frequency(utterance)[0] is not None
+
+    def string_is_empty(self, string:str) -> bool:
+        """Return True if the string is empty, only whitespace or not None."""        
+        return not (string and string.strip())
     
-    def extract_frequency(self, utterance:str) -> "tuple[vRecur, str]":       
+    def nice_frequency(self, frequency:vRecur) -> str:
+        """Generate nice frequency string for the given frequency vRecur object."""
+        assert type(frequency) is vRecur, f"Frequency is of type {type(frequency)}, has to be of type vRecur."
+        nice_frequency = self.translate_namedvalues('frequency', ',')[frequency.get('FREQ').lower()]
+        if frequency.get('BYWEEKDAY') is not None:
+            nice_frequency = " ".join((nice_frequency, self.translate_list('during')[0], (self.translate_list('weekdays')[0])))
+        return nice_frequency
+
+    def nice_description(self, description:str) -> str:
+        """Convert the ugly description to a nice string .
+
+        Args:
+            description (str): Ugly description.
+
+        Returns:
+            str: Nice description.
+        """        
+        assert not self.string_is_empty(description), "Execution was preempted since description was empty"
+        description = description.lower().split()
+        if description[0] in self.translate_list('infinitive.signs'):
+            description.pop(0)
+        description[0] = description[0].capitalize()
+        return' '.join(description)
+    
+    def get_response_datetime(self) -> datetime:
+        """Get a datetime object from user response .
+
+        Returns:
+            datetime: datetime object parsed from response.
+        """
+        response = self.get_response('what.datetime', validator=self.contains_datetime)
+        assert response is not None, 'Execution was preempted since there was no reponse'
+        return extract_datetime(response)[0]
+   
+    def extract_frequency(self, utterance:str, score_limit:float=0.5) -> "tuple[vRecur, str]":
         """Extracts an icalendar.vRecur object frquency from string utterance.
         Whats leftover from the string is returned as a rest.
         
@@ -72,11 +110,13 @@ class CalendarEvent(MycroftSkill):
 
         Args:
             utterance (str): String to parse for a frequency.
+            score_limit (float): Defines wheter the frequency is defined a match or not.
 
         Returns:
             tuple[vRecur, str]: Recurrence frequency and rest. None if no frequency is found.
-        """        
-        assert not self.string_is_empty(utterance), "Execution was preempted since frequency was empty"
+        """
+        if self.string_is_empty(utterance): 
+            return (None, None)
         best_match = ""
         best_score = 0.0
         best_frequency = ('',{})
@@ -97,8 +137,7 @@ class CalendarEvent(MycroftSkill):
             frequency = vRecur({'freq': 'monthly', 'interval': 1})
         elif best_frequency == self.FREQ_YEARLY:
             frequency = vRecur({'freq': 'yearly', 'interval': 1})
-
-        return (frequency, ' '.join([x for x in utterance.split() if x not in best_match.split()])) if best_score >= 0.5 else None
+        return (frequency, ' '.join([x for x in utterance.split() if x not in best_match.split()])) if best_score >= score_limit else (None, None)
 
     def add_calendar_event(self, date_time:datetime, description:str, frequency:vRecur=None):
         """Add a calendar event to the calendar .
@@ -108,56 +147,15 @@ class CalendarEvent(MycroftSkill):
             description (str): description for event.
             frequency (vRecur, optional): If events is to recur; defines the frequency. Defaults to None.
         """        
-        nice_frequency = ""
         event = Event()
         event.add('description', description)
         event.add('dtstart', vDatetime(date_time))
-        if frequency is not None:
-            event.add('rrule', frequency)
-            nice_frequency = self.nice_frequency(frequency)
+        event.add('rrule', frequency) if frequency else None
         self.calendar.add_component(event)
         with self.file_system.open(self.CAL_PATH, "wb") as f:
             f.write(self.calendar.to_ical())
-            self.speak_dialog('event.created', {'description': description, 'date_time': nice_date(date_time), 'frequency': nice_frequency})
+            self.speak_dialog('event.created', {'description': description, 'date_time': nice_date(date_time), 'frequency': self.nice_frequency(frequency) if frequency else ""})
 
-    def nice_frequency(self, frequency:vRecur) -> str:
-        """Generate nice frequency string for the given frequency vRecur object."""     
-        nice_frequency = self.translate_namedvalues('frequency', ',')[frequency.get('FREQ').lower()]
-        if frequency.get('BYWEEKDAY') is not None:
-            nice_frequency = " ".join((nice_frequency, self.translate_list('during')[0], (self.translate_list('weekdays')[0])))
-        return nice_frequency
-            
-    def get_datetime(self) -> datetime:
-        """Get a datetime object from user response .
-
-        Returns:
-            datetime: datetime object parsed from response.
-        """
-        date_time, response = (None, None)
-        response = self.get_response('what.datetime', validator=self.contains_datetime)
-        assert response is not None, 'Execution was preempted since there was no reponse'
-        date_time = extract_datetime(response)[0]
-        return date_time
-
-    def nice_description(self, description:str) -> str:
-        """Convert the ugly description to a nice string .
-
-        Args:
-            description (str): Ugly description.
-
-        Returns:
-            str: Nice description.
-        """        
-        assert not self.string_is_empty(description), "Execution was preempted since description was empty"
-        description = description.lower().split()
-        if description[0] in self.translate_list('infinitive.signs'):
-            description.pop(0)
-        description[0] = description[0].capitalize()
-        return' '.join(description)
-
-    def string_is_empty(self, string:str) -> bool:
-        """Return True if the string is empty, only whitespace or not None."""        
-        return not (string and string.strip())
 
     @intent_handler('create.event.intent')
     def create_event(self, message):
@@ -168,30 +166,30 @@ class CalendarEvent(MycroftSkill):
 
         try:
             if self.string_is_empty(event): # Datetime: False, Description: False, Frequency: False
-                date_time   = self.get_datetime()
+                date_time   = self.get_response_datetime()
                 description = self.get_response('what.description')
-                frequency = self.get_response('what.frequency', validator=self.contains_frequency) if self.ask_yesno('should.event.recur') == 'yes' else None
+                frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
             elif self.contains_datetime(event): #Datetime: True
                 date_time, rest = extract_datetime(event)
                 if self.string_is_empty(rest): # Datetime: True, Description: False, Frequency: False
                     description = self.get_response('what.description')
-                    frequency = self.get_response('what.frequency', validator=self.contains_frequency) if self.ask_yesno('should.event.recur') == 'yes' else None
+                    frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
                 elif self.contains_frequency(rest): # Datetime: True, Description: True, Frequency: True
                     frequency, description = self.extract_frequency(rest)
                     if self.string_is_empty(description): # Datetime: True, Description: False, Frequency: True
                         description = self.get_response('what.description')
                 else: # Datetime: True, Description: True, Frequency: False
                     description = rest
-                    frequency = self.get_response('what.frequency', validator=self.contains_frequency) if self.ask_yesno('should.event.recur') == 'yes' else None
+                    frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if (self.ask_yesno('should.event.recur') == 'yes') else None
             elif self.contains_frequency(event): #Datetime: False, Description: True, Frequency: True
-                date_time = self.get_datetime()
-                frequency, description = self.extract_frequency(rest, rest=True) if self.ask_yesno('should.event.recur') == 'yes' else (None, None)
+                date_time = self.get_response_datetime()
+                frequency, description = self.extract_frequency(event)
                 if self.string_is_empty(description): #Datetime: False, Description: False, Frequency: True
                     description = self.get_response('what.description')
             else: #Datetime: False, Description True, Frequency: False
-                date_time = self.get_datetime()
+                date_time = self.get_response_datetime()
                 description = event
-                frequency = self.get_response('what.frequency', validator=self.contains_frequency) if self.ask_yesno('should.event.recur') == 'yes' else None
+                frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
         except AssertionError as assertion_error:
             self.speak_dialog("could.not.understand")
             self.log.error(assertion_error)
