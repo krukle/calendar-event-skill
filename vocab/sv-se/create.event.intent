@@ -1,2 +1,1 @@
-(gör|skapa|planera|schemalägg|)(ett|en|)(händelse|event|evenemang){event}
-(lägg till)(i|)(kalendern|kalender|event){event}
+(gör|skapa|planera|schemalägg|lägg till)(ett|en|i|)(händelse|event|evenemang|kalendern|kalender){event}
