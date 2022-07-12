@@ -157,7 +157,7 @@ class CalendarEvent(MycroftSkill):
         with self.file_system.open(self.CAL_PATH, "wb") as f:
             f.write(self.calendar.to_ical())
             self.speak_dialog('event.created', {'description': description, 'date_time': nice_date(date_time), 'frequency': self.nice_frequency(frequency) if frequency else ""})
-        self.bus.emit(Message("RELAY:calendar:FETCH_CALENDARS", {"url": "http://localhost:8080/" + str(self.CAL_MM_REL_PATH)}))
+        self.bus.emit(Message("RELAY:calendar:FETCH_CALENDAR", {"url": "http://localhost:8080/" + str(self.CAL_MM_REL_PATH)}))
 
 
     @intent_handler('create.event.intent')
