@@ -16,7 +16,6 @@ class CalendarEvent(MycroftSkill):
         self.MM_PATH            = Path(Path.home(), 'MagicMirror')
         self.CAL_MM_REL_PATH    = Path('modules', 'calendar', 'calendar.ics')
         self.CAL_PATH           = Path(self.MM_PATH, self.CAL_MM_REL_PATH)
-        self.calendar           = self.initialize_calendar()
         
         # TODO: Make this into a /dialog files
         self.FREQ_DAILY = {
@@ -40,6 +39,9 @@ class CalendarEvent(MycroftSkill):
             "sv-se": ["årligen", "varje år"]
         }
         self.FREQUENCIES = [self.FREQ_DAILY, self.FREQ_WEEKDAYS, self.FREQ_WEEKLY, self.FREQ_MONTHLY, self.FREQ_YEARLY]
+
+    def initialize(self):
+        self.calendar = self.initialize_calendar()
 
     def initialize_calendar(self) -> Calendar: 
         """Initialize the Calendar.
@@ -139,6 +141,7 @@ class CalendarEvent(MycroftSkill):
             frequency = vRecur({'freq': 'monthly', 'interval': 1})
         elif best_frequency == self.FREQ_YEARLY:
             frequency = vRecur({'freq': 'yearly', 'interval': 1})
+    
         return (frequency, ' '.join([x for x in utterance.split() if x not in best_match.split()])) if best_score >= score_limit else (None, None)
 
     def add_calendar_event(self, date_time:datetime, description:str, frequency:vRecur=None):
@@ -152,6 +155,7 @@ class CalendarEvent(MycroftSkill):
         event = Event()
         event.add('description', description)
         event.add('dtstart', vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC')))) # Adds datetime converted to UTC for MM calendar.
+        frequency.update({'dtstart': vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC'))).to_ical()})
         event.add('rrule', frequency) if frequency else None
         self.calendar.add_component(event)
         with self.file_system.open(self.CAL_PATH, "wb") as f:
@@ -172,6 +176,7 @@ class CalendarEvent(MycroftSkill):
                 date_time   = self.get_response_datetime()
                 description = self.get_response('what.description')
                 frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
+            
             elif self.contains_datetime(event): #Datetime: True
                 date_time, rest = extract_datetime(event)
                 if self.string_is_empty(rest): # Datetime: True, Description: False, Frequency: False
@@ -184,15 +189,18 @@ class CalendarEvent(MycroftSkill):
                 else: # Datetime: True, Description: True, Frequency: False
                     description = rest
                     frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if (self.ask_yesno('should.event.recur') == 'yes') else None
+            
             elif self.contains_frequency(event): #Datetime: False, Description: True, Frequency: True
                 date_time = self.get_response_datetime()
                 frequency, description = self.extract_frequency(event)
                 if self.string_is_empty(description): #Datetime: False, Description: False, Frequency: True
                     description = self.get_response('what.description')
+            
             else: #Datetime: False, Description True, Frequency: False
                 date_time = self.get_response_datetime()
                 description = event
                 frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
+        
         except AssertionError as assertion_error:
             self.speak_dialog("could.not.understand")
             self.log.error(assertion_error)
