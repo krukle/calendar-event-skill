@@ -1,11 +1,11 @@
-from multiprocessing.context import assert_spawning
-from typing import Tuple
 from mycroft.util.format    import nice_date
 from mycroft.util.parse     import extract_datetime, match_one
+from mycroft.messagebus     import Message
 from icalendar              import Calendar, Event, vDatetime, vRecur
 from datetime               import datetime
 from mycroft                import MycroftSkill, intent_handler
 from pathlib                import Path
+import pytz
 import os
 
 class CalendarEvent(MycroftSkill):
@@ -13,8 +13,10 @@ class CalendarEvent(MycroftSkill):
         """Initialize the object for mycroft .
         """        
         MycroftSkill.__init__(self)
-        self.CAL_PATH = Path(Path.home(), 'MagicMirror', 'modules', 'calendar', 'calendar.ics')
-        self.calendar = self.initialize_calendar()
+        self.MM_PATH            = Path(Path.home(), 'MagicMirror')
+        self.CAL_MM_REL_PATH    = Path('modules', 'calendar', 'calendar.ics')
+        self.CAL_PATH           = Path(self.MM_PATH, self.CAL_MM_REL_PATH)
+        self.calendar           = self.initialize_calendar()
         
         # TODO: Make this into a /dialog files
         self.FREQ_DAILY = {
@@ -149,12 +151,13 @@ class CalendarEvent(MycroftSkill):
         """        
         event = Event()
         event.add('description', description)
-        event.add('dtstart', vDatetime(date_time))
+        event.add('dtstart', vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC')))) # Adds datetime converted to UTC for MM calendar.
         event.add('rrule', frequency) if frequency else None
         self.calendar.add_component(event)
         with self.file_system.open(self.CAL_PATH, "wb") as f:
             f.write(self.calendar.to_ical())
             self.speak_dialog('event.created', {'description': description, 'date_time': nice_date(date_time), 'frequency': self.nice_frequency(frequency) if frequency else ""})
+        self.bus.emit(Message("RELAY:calendar:FETCH_CALENDARS", {"url": "http://localhost:8080/" + str(self.CAL_MM_REL_PATH)}))
 
 
     @intent_handler('create.event.intent')
