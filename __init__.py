@@ -108,7 +108,19 @@ class CalendarEvent(MycroftSkill):
         assert response is not None, 'Execution was preempted since there was no reponse'
         return self.extract_datetime(response)[0]
     
-    def extract_datetime(self, utterance):
+    def extract_datetime(self, utterance:str) -> "tuple[datetime, str]":
+        """ Wrapper for mycroft.util.parse.extract_datetime.
+        Extract a datetime from a string.
+        Improves time parse.
+
+        Args:
+            utterance (str): Utterance of which to parse datetime from.
+
+        Returns:
+            datetime: parsed datetime object.
+            str: rest of utterance after datetime parse.
+        """
+        
         # Replace single length digits such as '9' or '7' with '900' or '700'
         # to avoid weird crash in extract_datetime().
         utterance = ' '.join([(u + ".00") if (u.isdigit() and len(u) <= 2) else u for u in utterance.lower().split()])
