@@ -1,10 +1,12 @@
+from datetime               import time as _time
+from datetime               import datetime
 from mycroft.util.format    import nice_date
 from mycroft.util.parse     import extract_datetime, match_one
 from mycroft.messagebus     import Message
 from icalendar              import Calendar, Event, vDatetime, vRecur
-from datetime               import datetime
 from mycroft                import MycroftSkill, intent_handler
 from pathlib                import Path
+import re
 import pytz
 import os
 
@@ -62,7 +64,7 @@ class CalendarEvent(MycroftSkill):
     
     def contains_datetime(self, utterance:str) -> bool:
         """Returns True if the utterance contains a datetime object ."""        
-        return extract_datetime(utterance) is not None
+        return self.extract_datetime(utterance) is not None
     
     def contains_frequency(self, utterance:str) -> bool:
         """Returns True if the utterance contains a frequency."""
@@ -104,7 +106,48 @@ class CalendarEvent(MycroftSkill):
         """
         response = self.get_response('what.datetime', validator=self.contains_datetime)
         assert response is not None, 'Execution was preempted since there was no reponse'
-        return extract_datetime(response)[0]
+        return self.extract_datetime(response)[0]
+    
+    def extract_datetime(self, utterance):
+        # Replace single length digits such as '9' or '7' with '900' or '700'
+        # to avoid weird crash in extract_datetime().
+        utterance = ' '.join([(u + ".00") if (u.isdigit() and len(u) <= 2) else u for u in utterance.lower().split()])
+
+        date_time, rest = extract_datetime(utterance)
+        date_time = date_time.replace(hour = 0, minute = 0)
+        rest += " 1702"
+        # If there's no time set in the returned date_time and the rest
+        # string contains digits; look for the time in the rest.
+        if (date_time.time() == _time() and re.search('\d', rest)):
+            
+            # Iterate words that contain digits in rest.
+            for word in re.findall('\S*\d+\S*', rest.lower()):
+                # Split word into list of digits separated by separators such as '.', ',' and '-'.
+                digits = re.split(r'\D+', word)
+                
+                # Digits where written together without separators, e.g. 120315
+                if len(digits) == 1:
+                    time = digits[0]
+                    if len(time) <=2:
+                        date_time = date_time.replace(hour = int(time))
+                    elif len(time) <= 4:
+                        date_time = date_time.replace(hour = int(time[:-2]), minute = int(time[-2:]))
+                    elif len(time) <= 6:
+                        date_time = date_time.replace(hour = int(time[:-4]), minute = int(time[-4:-2]), second = int(time[-2:]))
+                        
+                # Digits where written separated by separators. E.g. 12-03-15 or 12,03.15
+                elif len(digits) <= 3:
+                    int_digits = list(map(int, digits))
+                    if len(digits) >= 2:
+                        date_time = date_time.replace(hour = int_digits[0], minute = int_digits[1])
+                    if len(digits) == 3:
+                        date_time = date_time.replace(second = int_digits[2])
+            
+                # If a time's been set; break. 
+                if date_time.time() != _time():
+                    break
+        return date_time, ' '.join([word for word in rest.lower().split() if (word not in self.translate_list('time') and not re.search('\d', word))])
+            
    
     def extract_frequency(self, utterance:str, score_limit:float=0.5) -> "tuple[vRecur, str]":
         """Extracts an icalendar.vRecur object frquency from string utterance.
@@ -196,7 +239,7 @@ class CalendarEvent(MycroftSkill):
             
             #Datetime: True
             elif self.contains_datetime(event): 
-                date_time, rest = extract_datetime(event)
+                date_time, rest = self.extract_datetime(event)
                 
                 # Datetime: True, Description: False, Frequency: False
                 if self.string_is_empty(rest): 
@@ -235,7 +278,7 @@ class CalendarEvent(MycroftSkill):
             self.speak_dialog("could.not.understand")
             self.log.error(assertion_error)
             return
-
+        
         return self.add_calendar_event(date_time, self.nice_description(description), frequency)
 
 def create_skill() -> CalendarEvent:
