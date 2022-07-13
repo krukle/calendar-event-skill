@@ -117,18 +117,20 @@ class CalendarEvent(MycroftSkill):
             score_limit (float): Defines wheter the frequency is defined a match or not.
 
         Returns:
-            tuple[vRecur, str]: Recurrence frequency and rest. None if no frequency is found.
+            vRecur: Recurrence frequency. None if no frequency is found.
+            str: Rest. None if no frequency is found.
         """
         if self.string_is_empty(utterance): 
             return (None, None)
-        best_match = ""
-        best_score = 0.0
-        best_frequency = ('',{})
-        utterance = utterance.lower()
+        
+        best_match      = ""
+        best_score      = 0.0
+        best_frequency  = ('',{})
+        utterance       = utterance.lower()
+        
         for frequency in self.FREQUENCIES:
             match, score = match_one(utterance, frequency[self.lang])
             best_match, best_score, best_frequency = (match, score, frequency) if (score >= best_score) else (best_match, best_score, best_frequency)
-            utterance, best_match, best_score, frequency[self.lang]
         
         # DOCS: https://dateutil.readthedocs.io/en/stable/rrule.html
         if best_frequency == self.FREQ_DAILY:
@@ -152,15 +154,29 @@ class CalendarEvent(MycroftSkill):
             description (str): description for event.
             frequency (vRecur, optional): If events is to recur; defines the frequency. Defaults to None.
         """        
-        event = Event()
-        event.add('description', description)
-        event.add('dtstart', vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC')))) # Adds datetime converted to UTC for MM calendar.
-        frequency.update({'dtstart': vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC'))).to_ical()})
-        event.add('rrule', frequency) if frequency else None
+        event = Event({
+            'description':  description,
+            'dtstart':      vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC')))
+            })
+        
+        dialog_data = {
+            'description':  description, 
+            'date_time':    nice_date(date_time),
+            'frequency':    ""
+                       }
+        
+        if frequency is not None:
+            frequency.update({'dtstart': vDatetime(date_time.astimezone(pytz.timezone('Etc/UTC'))).to_ical()})
+            event.add('rrule', frequency)
+            dialog_data['frequency'] = self.nice_frequency(frequency)
+            
         self.calendar.add_component(event)
         with self.file_system.open(self.CAL_PATH, "wb") as f:
             f.write(self.calendar.to_ical())
-            self.speak_dialog('event.created', {'description': description, 'date_time': nice_date(date_time), 'frequency': self.nice_frequency(frequency) if frequency else ""})
+        
+        self.speak_dialog('event.created', dialog_data)
+        
+        # Alert MM calendar that there's been an update.
         self.bus.emit(Message("RELAY:calendar:FETCH_CALENDAR", {"url": "http://localhost:8080/" + str(self.CAL_MM_REL_PATH)}))
 
 
@@ -172,33 +188,47 @@ class CalendarEvent(MycroftSkill):
         frequency   = None
 
         try:
-            if self.string_is_empty(event): # Datetime: False, Description: False, Frequency: False
+            # Datetime: False, Description: False, Frequency: False
+            if self.string_is_empty(event): 
                 date_time   = self.get_response_datetime()
                 description = self.get_response('what.description')
                 frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
             
-            elif self.contains_datetime(event): #Datetime: True
+            #Datetime: True
+            elif self.contains_datetime(event): 
                 date_time, rest = extract_datetime(event)
-                if self.string_is_empty(rest): # Datetime: True, Description: False, Frequency: False
+                
+                # Datetime: True, Description: False, Frequency: False
+                if self.string_is_empty(rest): 
                     description = self.get_response('what.description')
                     frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
-                elif self.contains_frequency(rest): # Datetime: True, Description: True, Frequency: True
+                
+                # Datetime: True, Description: True, Frequency: True
+                elif self.contains_frequency(rest): 
                     frequency, description = self.extract_frequency(rest)
-                    if self.string_is_empty(description): # Datetime: True, Description: False, Frequency: True
+                    
+                    # Datetime: True, Description: False, Frequency: True
+                    if self.string_is_empty(description): 
                         description = self.get_response('what.description')
-                else: # Datetime: True, Description: True, Frequency: False
+                
+                # Datetime: True, Description: True, Frequency: False
+                else: 
                     description = rest
                     frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if (self.ask_yesno('should.event.recur') == 'yes') else None
             
-            elif self.contains_frequency(event): #Datetime: False, Description: True, Frequency: True
-                date_time = self.get_response_datetime()
+            #Datetime: False, Frequency: True
+            elif self.contains_frequency(event): 
                 frequency, description = self.extract_frequency(event)
-                if self.string_is_empty(description): #Datetime: False, Description: False, Frequency: True
+                date_time = self.get_response_datetime()
+                
+                #Datetime: True, Description: False, Frequency: True
+                if self.string_is_empty(description): 
                     description = self.get_response('what.description')
             
-            else: #Datetime: False, Description True, Frequency: False
-                date_time = self.get_response_datetime()
+            #Datetime: False, Description True, Frequency: False
+            else: 
                 description = event
+                date_time = self.get_response_datetime()
                 frequency = self.extract_frequency(self.get_response('what.frequency', validator=self.contains_frequency))[0] if self.ask_yesno('should.event.recur') == 'yes' else None
         
         except AssertionError as assertion_error:
