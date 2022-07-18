@@ -232,7 +232,7 @@ class CalendarEvent(MycroftSkill):
         self.speak_dialog('event.created', dialog_data)
         
         # Alert MM calendar that there's been an update.
-        self.bus.emit(Message("RELAY:calendar:FETCH_CALENDAR", {"url": "http://localhost:8080/" + str(self.CAL_MM_REL_PATH)}))
+        self.bus.emit(Message("RELAY:calendar:FETCH_CALENDAR", {"url": "localhost:8080/" + str(self.CAL_MM_REL_PATH)}))
 
 
     @intent_handler('create.event.intent')
