@@ -237,6 +237,13 @@ class CalendarEvent(MycroftSkill):
 
     @intent_handler('create.event.intent')
     def create_event(self, message):
+        """
+        Create an event with the given information.
+        @param event - the event name
+        @param date_time - the date and time of the event
+        @param description - the description of the event
+        @param frequency - the frequency of the event
+        """
         event       = message.data.get('event')
         date_time   = None
         description = None
