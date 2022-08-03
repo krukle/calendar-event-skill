@@ -126,7 +126,6 @@ class CalendarEvent(MycroftSkill):
         utterance = ' '.join([(u + ".00") if (u.isdigit() and len(u) <= 2) else u for u in utterance.lower().split()])
 
         date_time, rest = extract_datetime(utterance)
-        date_time = date_time.replace(hour = 0, minute = 0)
         
         # If there's no time set in the returned date_time and the rest
         # string contains digits; look for the time in the rest.
