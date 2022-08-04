@@ -51,12 +51,18 @@ class CalendarEvent(MycroftSkill):
         If the calendar already exists, initializes from existing one.
         
         If not, a new calendar is created incl. parent folders."""  
+        self.log.info("Initialize calendar")
+        cal = Calendar()
         if self.calendar_exists():
-            with self.file_system.open(self.CAL_PATH, "rb") as file:
-                return Calendar.from_ical(file.read())
+            self.log.info("Loading ical from existing calendar.")
+            with self.file_system.open(self.CAL_PATH, "rb") as f:
+                return cal.from_ical(f.read())
         else:
+            self.log.info("Calendar did not exist. Creating new calendar.")
             self.CAL_PATH.parent.mkdir(parents=True, exist_ok=True)
-            return Calendar()
+            with self.file_system.open(self.CAL_PATH, "wb") as f:
+                f.write(cal.to_ical())
+            return cal
 
     def calendar_exists(self) -> bool: 
         """Returns True if the calendar and its parent folders exists ."""            
