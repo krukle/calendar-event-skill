@@ -69,8 +69,11 @@ class CalendarEvent(MycroftSkill):
         return self.file_system.exists(self.CAL_PATH) and os.stat(self.CAL_PATH).st_size > 0
     
     def contains_datetime(self, utterance:str) -> bool:
-        """Returns True if the utterance contains a datetime object ."""        
-        return self.extract_datetime(utterance) is not None
+        """Returns True if the utterance contains a datetime object ."""  
+        try:
+            return self.extract_datetime(utterance) is not None
+        except:  
+            return False
     
     def contains_frequency(self, utterance:str) -> bool:
         """Returns True if the utterance contains a frequency."""
