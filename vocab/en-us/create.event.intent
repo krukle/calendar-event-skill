@@ -1,1 +1,1 @@
-(create|add|plan)(calendar|)(event){event}
+(create|add|plan)(a|an|)(calendar|)(event){event}
